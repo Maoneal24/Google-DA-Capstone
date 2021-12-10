@@ -1,0 +1,419 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loading libraries, include = FALSE}
+library(tidyverse)
+library(lubridate)
+library(ggmap)
+library(RColorBrewer)
+library(data.table)
+```
+
+```{r all cleaning operations, include = FALSE}
+##import csvs
+mydir <- "csvfolder"
+myfiles <- list.files(path=mydir,pattern="*.csv", full.names=TRUE)
+##create raw dataframe
+dat_csv_raw <- map_dfr(myfiles, read_csv, col_types = cols("start_station_id" = col_character(),"end_station_id" = col_character()))
+##create clean (working) dataframe while removing the WATSON TESTING rides
+dat_csv_clean <- filter(dat_csv_raw, is.na(start_station_name) | start_station_name != "WATSON TESTING - DIVVY")
+##remove unwanted columns
+dat_csv_clean <- dat_csv_clean[, !colnames(dat_csv_clean) %in% c("start_station_name","start_station_id","end_station_name","end_station_id")]
+##create a ride_length column by calculating the difference between start and end times
+dat_csv_clean$ride_length <- dat_csv_clean$ended_at - dat_csv_clean$started_at
+##filter out the rides <= 0 second long
+dat_csv_clean <- filter(dat_csv_clean, ride_length > 0)
+##create a weekday column
+dat_csv_clean$weekday <- weekdays(dat_csv_clean$started_at)
+##create a month column
+dat_csv_clean$month <- months(dat_csv_clean$started_at)
+##create a time column
+dat_csv_clean$time <- format(dat_csv_clean$started_at,format = "%H:%M:%S")
+```
+
+### Executive Summary
+
+This report summarizes the findings of our analysis done for the capstone project of Google's data analytics professional certificate.
+
+The entirety of the analysis can be found in the analysis log, "CyclisticAnalysis.Rmd".
+
+The goal is to analyze the data provided by a hypothetical bicycle-sharing service called Cyclistic in order to discover differences between their members and casual users. From these differences we will build a new marketing strategy aiming to convert casual users into annual members. 
+
+After investigation into the differences between Cyclistic's members and casual users, determined from the available historical data on use of the service, it can be said that:
+
+* members and casual users differ slightly in their choice of bicycle type, showing that members have had a stronger tendency toward classic bikes
+* members have been more likely than casual users to use the service on weekdays
+* members have been more likely than casual users to use the service during typical commuting times
+* members have been more likely than casual users to use the service during colder months of the year
+* member rides tended to be shorter than those of casual users
+* casual users have been more likely than members to use the service around tourist attractions near Chicago's waterfront
+
+All of these observations contribute to a data story that tells us about how members are those who believe that they will be able to make consistent use of Cyclistic's services, especially commuters. Our marketing strategy to convert casuals to members should highlight and focus on the benefits of membership. 
+
+Visualizations of the data that illustrate these statements are shown in the discussion section of this report.
+
+All of our cleaning operations, as well as more commentary on every step of the analysis, can be found in a separate file titled "CyclisticAnalysis".
+
+These specific differences in user behavior, as well as our ideas surrounding the likely factors involved in an individual becoming a member suggest to us that a successful marketing strategy will include:
+
+1. Promoting the benefits of commuting via bicycle through all of Cyclistic's current advertising channels. With the goal to convince casual users to consider the service as a possible solution for their commuting needs.
+    + Environmental benefits
+    + Economic benefits
+    + Health benefits
+2. Making casual users aware of the money-saving benefits of a membership via any medium available. This could be via signage near stations and digitally via email or SMS if the user provides contact information. As well as optionally:
+    + offering an opportunity after the use of a single-ride or single-day pass to purchase a membership at a cost reduced by the cost of their single pass
+    + offering discounts on single-ride or day passes to friends/referrals of members
+3. Visibly participating in events, or partnering with organizations that seek to help people get jobs or scholarships. Essentially anything that would promote more regular bicycle use by those who currently are aware of the service through their past experience with a casual pass. These could be:
+    + participation with, or sponsorship of job fairs
+    + involvement with scholastic events like multi-school competitions
+    + brand presence on college campuses
+    + partnering with schools to offer Cyclistic services to all of their students at a reduced cost that's factored into their tuition, similar to partnerships that a lot of schools have with local public transport options
+    + programs dedicated toward offering retraining to people with unfortunate financial situations, like temporarily unemployed or unhoused individuals
+    + programs dedicated to providing healthy school lunches to children in the area
+
+Bonus Recommendations:
+
+4. Collect customer ID information to better analyze behavior. Being able to analyze rides with relation to their user would allow the company to perform much more thorough statistical analysis. We could build models that estimate the likelihood of a casual user becoming a member using data from the rides that members took as a casuals. We could also construct ideas surrounding the different types of users who engage with the service in order to better investigate their motivations.
+5. Collect data on the use of accessibility options to build better relationships with users looking for those options.
+
+***
+
+### Introduction
+
+The project involves acting as a junior analyst on the marketing team at Cyclistic, a bike-sharing company in Chicago. 
+
+The director of marketing believes that the company's future success depends on maximizing the number of annual memberships, members being those who subscribe to the service. Casual riders are those that use the service without a membership.
+
+With the goal of increasing membership in mind, our team wants to analyze the available data to determine how casual riders and annual members differ in their use of the service. From these insights, our team will design a new marketing strategy to convert casual riders into annual members.
+
+This file includes a summarized report of the findings. The case study prompt is contained within a locked .pdf file, but a link can be found to it within a course site that may be available to you [here](https://www.coursera.org/learn/google-data-analytics-capstone/supplement/7PGIT/case-study-1-how-does-a-bike-share-navigate-speedy-success). 
+
+***
+
+### Discussion
+
+The collected data includes information on individual trips or "rides" in wide form. Data like:
+
+* start time
+* end time
+* start coordinates
+* end coordinates
+* "ride ID"s
+* "station ID"s
+* the type of bike used for the trip
+* whether the rider was an annual member or casual user
+
+We perform some quick visual sorting and filtering via the GUI in RStudio, and we can determine what kind of analysis is possible on this data. Cleaning operations can be found in our lengthier analysis log.
+
+We construct a number of visualizations to illustrate the differences between members and casual users, beginning with a simple pie chart showing the current proportion of each among all rides.
+
+```{r member_casual pie chart, echo = FALSE}
+##create a pie chart comparing member and casual ride counts
+casual_count <- as.integer(count(filter(dat_csv_clean, member_casual == "casual")))
+member_count <- as.integer(count(filter(dat_csv_clean, member_casual == "member")))
+
+df_pi <- data.frame(
+  group = c("member", "casual"),
+  value = c(member_count, casual_count))
+
+df_pi <- df_pi %>%
+  arrange(desc(group)) %>%
+  mutate(prop=value/sum(df_pi$value)*100) %>%
+  mutate(ypos=cumsum(prop)-0.5*prop)
+
+pie <- ggplot(data=df_pi, aes(x="", y=prop, fill=group))
+
+pie + geom_bar(stat='identity', width=1, color="black") +
+  coord_polar("y", start=0) +
+  theme_void() + #removes background, grid, and numeric labels
+  geom_text(aes(y=ypos, label=paste(group,"\n",round(prop,digits=2),"%"),size=6)) +
+  scale_fill_brewer(palette="Set2") +
+  labs(title="All Rides by User Type") +
+  theme(plot.title=element_text(size=14,face="bold.italic", hjust=0.5,vjust=0),
+        legend.position="none")
+```
+
+Seeing that it's currently split at roughly half.
+
+We create two visualizations to communicate the difference in choice of bicycle type among the types of users. A faceted bar chart showing the count of rides by bike type and member type:
+
+```{r rideable_type count, echo = FALSE}
+ggplot(dat_csv_clean,aes(x=rideable_type)) +
+  geom_bar() +
+  scale_x_discrete(name="bicycle types", labels=c("Classic", "Docked", "Electric")) +
+  labs(title="count of rides by type of bicycle") +
+  facet_wrap(~member_casual)
+```
+
+As well as a couple of pie charts showing the proportions of bike choice among user types:
+
+```{r rideable_type proportions, echo = FALSE}
+## rideable pie - start by creating the counts to fill the pie chart dataframe
+#member counts
+classic_count_m <- as.integer(count(filter(dat_csv_clean, member_casual == "member" & rideable_type == "classic_bike")))
+docked_count_m <- as.integer(count(filter(dat_csv_clean, member_casual == "member" & rideable_type == "docked_bike")))
+electric_count_m <- as.integer(count(filter(dat_csv_clean, member_casual == "member" & rideable_type == "electric_bike")))
+
+#casual counts
+classic_count_c <- as.integer(count(filter(dat_csv_clean, member_casual == "casual" & rideable_type == "classic_bike")))
+docked_count_c <- as.integer(count(filter(dat_csv_clean, member_casual == "casual" & rideable_type == "docked_bike")))
+electric_count_c <- as.integer(count(filter(dat_csv_clean, member_casual == "casual" & rideable_type == "electric_bike")))
+
+#dataframe for rideable pie
+df_ride_pie <- data.frame(
+  group = c("member", "member", "member", "casual", "casual", "casual"),
+  type = c("classic", "docked", "electric", "classic", "docked", "electric"),
+  value = c(classic_count_m, docked_count_m,electric_count_m,classic_count_c, docked_count_c,electric_count_c)
+)
+
+df_ride_pie <- df_ride_pie %>%
+  arrange(desc(type)) %>%
+  mutate(prop=(ifelse(group=="member",value/member_count*100,value/casual_count*100)))
+
+dt_ride_pie <- data.table(df_ride_pie)
+
+dt_ride_pie[,ypos:=cumsum(prop)-0.5*prop, by=group]
+
+ggplot(data=dt_ride_pie, aes(x="", y=prop, fill=type)) +
+  geom_col(position="stack", width=1, color="black") +
+  geom_text(aes(label=paste(round(prop,digits=1),"%", sep=""), x=1.1),
+            position=position_stack(vjust=0.5)) +
+  theme_void() +
+  labs(title="Proportions of Bike Type by User Type") +
+  theme(plot.title=element_text(size=14,
+                                face="bold.italic", 
+                                hjust=0.5,
+                                margin = margin(10,0,10,0)),
+        legend.title=element_blank(),
+        legend.position = "top",
+        strip.text=element_text(size=10,
+                                face="bold",
+                                vjust=0)) +
+  coord_polar("y", start=0) +
+  facet_wrap(~group, strip.position = "bottom")
+```
+
+We can see that both types of users are about as likely to use electric bikes, while members more heavily favor classic bikes and casual users have shown an increased interest in docked bikes.
+
+Casual users, especially first-time users, may be more likely to go docked because they become aware of the service upon seeing a bike station.
+
+We view a count of rides by month:
+
+```{r month count, echo = FALSE, warning=FALSE}
+ggplot(dat_csv_clean, aes(x=month, group_by=member_casual, fill=member_casual)) +
+  geom_histogram(position="dodge", bins=12, color="black", stat="count") +
+  labs(title="Count of rides by Month") +
+  scale_fill_brewer(palette="Set2") +
+  scale_x_discrete(name="Month", limits=c("January","February","March","April","May","June","July","August","September","October","November","December"),
+                   labels=c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")) +
+  scale_y_continuous(name="Rides", breaks=c(100000,200000,300000,400000), labels=c("100K","200K","300K","400K")) +
+  theme(legend.position=c(0.15,0.75),
+        legend.background = element_rect(fill="transparent"),
+        legend.title=element_blank())
+```
+
+The above graph shows that all users are much more likely to use Cyclistic's services during summer months, and the number of casual rides actually surpasses those of members between June and August. All other months consistently show a higher number of member rides than casual.
+
+Annual members may be those who already know they will likely need to use a bike in the winter, but it could also be the case that people who know they have an annual membership are much more likely to consider cycling as an option for their travel at any given time.
+
+A count of rides by weekday:
+
+```{r weekday count, echo = FALSE, warning = FALSE}
+ggplot(dat_csv_clean, aes(x=weekday, group_by=member_casual, fill=member_casual)) +
+  geom_histogram(position="dodge", bins=7, stat="count", color="black") +
+  labs(title="Count of rides by day of the week") +
+  scale_x_discrete(name="Weekday",
+                   limits=c("Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"),
+                   labels=c("Sun","Mon","Tues","Wed","Thurs","Fri","Sat")) +
+  scale_y_continuous(name="Rides", breaks=seq(100000,500000,100000), labels=c("100K","200K","300K","400K","500K")) +
+  scale_fill_brewer(palette="Set2") +
+  theme(legend.position = c(0.5,0.96),
+        legend.background = element_rect(fill="transparent"),
+        legend.title=element_blank(),
+        legend.direction="horizontal")
+```
+
+From this, we see that there is a much more steady use of the service from members.  
+
+Casuals are more likely to take advantage of Cyclistic's services on the weekends, while member numbers are highest during the week and don't change that much.  
+
+This could indicate a tendency for members to have routines that include a regular commute. 
+
+Those living in the area who commute a short distance could make frequent use of an annual membership. This could also include commuters who primarily utilize public transportation, but whose commutes feature a few miles not currently serviced by public transport. A phenomenon being talked about as "last mile" problems by the industry.
+
+A count of rides by their time of day:
+
+```{r time of day count, echo = FALSE, warning = FALSE}
+ggplot(dat_csv_clean, aes(x=format(started_at, format="%H"), group_by=member_casual, fill=member_casual)) +
+  geom_histogram(position="dodge", bins=24, color="black", stat="count") +
+  labs(title="Count of rides by hour of the day") +
+  scale_fill_brewer(palette="Set2") +
+  scale_y_continuous(name="Rides", breaks=c(100000,200000,300000), labels=c("100K","200K","300K")) +
+  scale_x_discrete(name="Starting Hour (24hr format)") +
+  theme(legend.position=c(0.25,0.75),
+        legend.background = element_rect(fill="transparent"),
+        legend.title=element_blank())
+```
+
+This does conform to our ideas about members being commuters. There are two spikes in use from members: one around 8 am when people typically go to work, and one around 5 pm when people are typically leaving work. 
+
+Casual use has only one spike around 5 pm, but none during the typical times people would go to work.
+
+A scatter plot of ride lengths:
+
+```{r ride length scatter plot, echo = FALSE, message = FALSE}
+ggplot(dat_csv_clean, aes(x=started_at, y=ride_length, color=member_casual)) +
+  geom_point() +
+  labs(x="Ride Start", y="length in seconds", title="ride durations") +
+  scale_fill_brewer(palette="Set2")
+```
+
+It appears as if there are a lot of questionably long rides. One hour is 3,600 seconds, yet there are many rides lasting up to more than 3,000,000 seconds. These could indicate errors in data collection, or they could represent instances where a rider forgot to return a bike for many days. Three million seconds is approximately 34 days, and if Cyclistic charges for late returns then those users may have faced uncomfortable situations upon returning their bikes.
+
+They could also be the result of intended use of the service, where a casual user actually decided to purchase a month of consecutive day passes. We'd have to develop a better understanding of Cyclistic's normal operation.
+
+We can already see from this plot that it seems more likely for casuals to go on longer rides, while member rides are typically shorter.
+
+I want to get a better idea of the frequencies by constructing a histogram that counts rides, binned by the half hour and displaying the count of rides between half-hour separated ticks.
+
+```{r histogram of ride lengths, echo = FALSE, warning = FALSE}
+ggplot(dat_csv_clean, aes(x=ride_length/60, group_by=member_casual, fill=member_casual)) +
+  geom_histogram(position="dodge", binwidth=30, color="black") +
+  labs(title="Rides by length and user type") +
+  scale_x_continuous(name="Ride length in minutes",breaks=seq(30,300,30),labels=c("30","60","90","120","150","180","210","240","270","300"),limits=c(0,300)) +
+  scale_y_continuous(name="rides",breaks=c(0,500000,1000000,1500000,2000000), labels=c("0","0.5M","1M","1.5M","2M")) +
+  scale_fill_brewer(palette="Set2") +
+  theme(legend.position=c(0.75,0.75),
+        legend.background = element_rect(fill="transparent"),
+        legend.title=element_blank())
+```
+
+We can see from the histogram that our observations from the previous scatter plot were correct. Members are much more likely to take shorter trips. This lines up with the reasoning that members purchase memberships when they have life situations that include opportunities for frequent bike usage, like commuting to school or work.  
+
+We do cut the graph off at 5 hours for the upper end of our ride lengths. This removes exactly 12339 rides from the graph.
+
+A more intuitive way to visualize ride length may be with a box plot. We can construct a box plot from all rides:
+
+```{r boxplot all rides, echo = FALSE}
+timeplot_data <- dat_csv_clean[colnames(dat_csv_clean) %in% c("ride_length","member_casual")]
+
+ggplot(timeplot_data, aes(x=member_casual, y=ride_length/60)) +
+  geom_boxplot() +
+  scale_y_continuous(name="Ride length in minutes") +
+  theme(axis.title.x=element_blank()) +
+  labs(title = "All rides")
+```
+
+The data covers a large range of ride lengths, but is so skewed towards the shorter side that the boxes both appear as lines along the axis. There are also so many outliers in this data that the outliers look like they could be the lines of the upper quartile.
+
+Similar to the scatter plot, we can see that casual users are more likely to go on much longer rides than members.  
+
+To get a better view of the ride lengths, we can construct a box plot with no outliers:
+
+```{r boxplot no outliers, echo = FALSE, warning = FALSE}
+ggplot(timeplot_data, aes(x=member_casual, y=ride_length/60)) +
+  geom_boxplot(outlier.shape=NA) +
+  scale_y_continuous(name="Ride length in minutes",
+                     limits=c(0,60)) +
+  theme(axis.title.x=element_blank()) +
+  labs(title = "All rides, outliers hidden")
+```
+
+This paints a much neater picture of the length of the rides.  
+
+It does so by removing ~250 thousand ride observations (248,131), which will necessarily include many rides that we should consider to be normal uses of the service.  
+
+There is value in bringing up the existence of the outrageously long rides with the data collection team. The seemingly month long rides could be a result of data collection errors or normal use, but they could also be the result of casual users forgetting to return their bikes when done with them.
+
+These types of situations could lead to losses for Cyclistic... if a casual user fears the cost of returning their bike and simply never does, or the unexpected expense results in them not being able to afford to bring it back. Those bikes become unavailable for other users during the whole period, and the negative experience for both affected users may result in them avoiding the service in the future.
+
+A density map showing frequency of the location of ride starts:
+
+![](https://i.imgur.com/oXJGauf.jpg)
+
+We can see from the maps that the density of member trips is more evenly distributed than the casual trips, whose rides tend to concentrate around the waterfront tourist attractions. This fits well with the ideas we've constructed so far about members tending to be commuters.
+
+Any type of physical ad campaign targeting casual users could best be implemented in areas around the waterfront tourist attractions, where casual users are more likely to try the service.
+
+***
+
+### Conclusion
+
+Analysis of the data shows us six main differences between members and casual users:
+
+* members and casual users differ slightly in their choice of bicycle type, showing that members have had a stronger tendency toward classic bikes
+* members have been more likely than casual users to use the service on weekdays
+* members have been more likely than casual users to use the service during typical commuting times
+* members have been more likely than casual users to use the service during colder months of the year
+* member rides have tended to be shorter than those of casual users
+* casual users have been more likely than members to use the service around tourist attractions along Chicago's waterfront
+
+***
+
+### Recommendations
+
+The first three recommendations focus on what a successful marketing strategy will include, those being:
+
+1. Promoting the benefits of commuting via bicycle through all of Cyclistic's current advertising channels. With the goal to convince casual users to think about the service as a possible solution for their commuting needs.
+    + Environmental benefits
+    + Economic benefits
+    + Health benefits
+2. Making casual users aware of the money-saving benefits of a membership through any medium available. This could be via signage near stations and digitally via email or SMS if the user provides contact information. As well as optionally:
+    + offering an opportunity after the use of a single-ride or single-day pass to purchase a membership at a cost reduced by the cost of their single pass
+    + offering discounts on single-ride or day passes to friends/referrals of members
+3. Visible participation in events or partnerships with organizations that seek to help people get jobs or scholarships. Essentially anything that would promote more regular bicycle use by those who are currently aware of the service through their past experience with a casual pass. These could be:
+    + participation with, or sponsorship of job fairs
+    + involvement with scholastic events like multi-school competitions
+    + brand presence on college campuses
+    + partnering with schools to offer Cyclistic services to all of their students at a reduced cost that's factored into their tuition, similar to the partnerships that a lot of schools have with local public transport options
+    + programs dedicated toward offering retraining to people with unfortunate financial situations, like temporarily unemployed or unhoused individuals
+    + programs dedicated to providing healthy school lunches to children in the area
+
+This type of strategy would have varying success depending on a number of factors. Company financials would play a large role in deciding what kind of actions are within reach of our budget, and none are visible from the case prompt. 
+
+I offer these related ideas as a conversation starter with Cyclistic executives. Further deliberation on strategy would require more analysis on data that is either yet to be collected, or is currently being removed by the source before they make their data public. 
+
+There is potential for these actions to face criticism concerning their intentions. Criticism surrounding whether their primary focus is to benefit the city and its people or to simply create more members and revenue for Cyclistic. If a route can be found that is financially feasible for the company while accomplishing both of these things, it would be a great success for everybody. Something that can make members feel good about every facet of their decision to purchase a membership; knowing that their actions are benefiting the planet, the local community, as well as their bodies and wallets. It could be a significant motivator for individuals who are aware of the service and thinking about purchasing a membership.
+
+Bonus Recommendations:
+
+4. Collect customer ID information to better analyze behavior. Being able to analyze rides with relation to their user would allow the company to perform much more thorough statistical analysis. We could build models that estimate the likelihood of a casual user becoming a member using data from the rides that members took as a casuals. We could also construct ideas surrounding the different types of users who engage with the service in order to better investigate their motivations.
+5. Collect data on the use of accessibility options to build better relationships with users looking for those options. 
+    + User experience designers have been putting to practice more and more over recent years the idea that consideration put towards accessibility leads to a benefit for all users... sometimes in unexpected ways. It benefits a company to think about how they can serve all potential users. Many popular features of widely-used tools or products only made their breakthroughs after honest consideration toward every perspective that interacts with their product.
+
+***
+
+### Packages
+
+Below are all of the R packages used for this analysis, starting with R itself:
+
+ R Core Team (2013). R: A language and environment for statistical
+  computing. R Foundation for Statistical Computing, Vienna, Austria.
+  URL [http://www.R-project.org/](http://www.R-project.org/)
+
+tidyverse:
+Wickham et al., (2019). Welcome to
+  the tidyverse. Journal of Open
+  Source Software, 4(43), 1686,
+  [https://doi.org/10.21105/joss.01686](https://doi.org/10.21105/joss.01686)
+  
+ggmap:
+D. Kahle and H. Wickham. ggmap:
+  Spatial Visualization with ggplot2.
+  The R Journal, 5(1), 144-161. URL
+  [http://journal.r-project.org/archive/2013-1/kahle-wickham.pdf](http://journal.r-project.org/archive/2013-1/kahle-wickham.pdf)
+  
+data.table:
+Matt Dowle and Arun Srinivasan
+  (2021). data.table: Extension of
+  `data.frame`. R package version
+  1.14.2.
+  [https://CRAN.R-project.org/package=data.table](https://CRAN.R-project.org/package=data.table)
+  
+RColorBrewer:
+Erich Neuwirth (2014). RColorBrewer:
+  ColorBrewer Palettes. R package
+  version 1.1-2.
+  [https://CRAN.R-project.org/package=RColorBrewer](https://CRAN.R-project.org/package=RColorBrewer)
